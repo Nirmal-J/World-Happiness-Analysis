@@ -1,0 +1,381 @@
+---
+title: "world_happiness 2019/2018"
+author: "Nirmal Sai Swaroop Janapaneedi"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# INTRODUCTION 
+Leading experts across fields describe how measurements of well-being can be used effectively to assess the progress of nations. 
+
+This project review the state of happiness in the world in 2019 vs 2018 and show how the new science of happiness explains personal and national variations in happiness. 
+
+
+# ----- GOAL -----
+# In this project, i will be asking the following questions: 
+# 1. To be able to make a prediction model that will help us predict happiness and score based on multiple variables? 
+
+# 2. What countries or regions rank the highest in overall happiness and each of the six factors contributing to happiness? 
+# 3. How did country ranks or scores change between the 2015 and 2016 as well as the 2016 and 2017 reports? 
+# 4. Did any country experience a significant increase or decrease in happiness?
+
+
+
+## import libraries
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(caret)
+library(DescTools)
+library(ggcorrplot)
+```
+
+
+
+# ----- Import dataset -----
+
+```{r}
+data <- read.csv("2019.csv")
+```
+
+# ----- Explore and visualize data -----
+
+# This shows an organized section of data frame
+
+
+```{r}
+glimpse(data)
+```
+
+# structure of the data frame
+
+```{r}
+str(data)
+```
+
+
+
+```{r}
+summary(data)
+```
+
+# shows highest 10 scores
+
+```{r}
+head(data, n=10)
+```
+
+# shows lowest 10 scores
+
+```{r}
+tail(data, n=10)
+```
+
+# histogram of scores
+
+â€œRich countries are definitely happier than poor countries,â€ he said. â€œItâ€™s no joy to be poor.â€ But unlike the United States, where a loss of faith in institutions has dovetailed with the drop in happiness reported by Americans, people in Scandinavian countries believe in one another and their governments, Professor Sachs said.In Finland, 91 percent of survey respondents reported being satisfied with their president and 86 percent said they trust the police.
+
+```{r}
+hist(data$Score, freq=TRUE, col="black", border="white", 
+     main="2019 Happiness Scores", xlab="Score", ylab="Count")
+```
+
+# plot gdp per cap vs score
+
+```{r}
+ggplot(data = data, aes(x = Score, y = GDP.per.capita)) + 
+  geom_point(color='black') +
+  geom_smooth(method = "lm", se = TRUE)
+```
+
+# plot generosity vs score
+
+```{r}
+ggplot(data = data, aes(x = Score, Generosity)) + 
+  geom_point(color='black') +
+  geom_smooth(method = "lm", se = TRUE)
+```
+
+# plot life expectancy vs score
+
+```{r}
+ggplot(data = data, aes(x = Score, Healthy.life.expectancy)) + 
+  geom_point(color='black') +
+  geom_smooth(method = "lm", se = TRUE)
+```
+
+# Thus, moving forward, let us explore the correlation between the other predictors (economy, family, trust, etc.) and happiness score
+
+
+```{r}
+temp <- data[, c(3,4,5,6,7,8,9)]
+cormat <- signif(cor(temp), 2)
+ggcorrplot(cormat)
+```
+
+# ----- Summation model -----
+# find  predicted score by sum method and calculate the corresponding RMSE
+
+```{r}
+sum_model <- data %>% mutate(pred_score = GDP.per.capita +
+                               Social.support +
+                               Healthy.life.expectancy +
+                               Freedom.to.make.life.choices + 
+                               Generosity + 
+                               Perceptions.of.corruption + 
+                               1.85, 
+                             RMSE = RMSE(Score, pred_score))
+```
+
+
+# show top results of the summation model
+
+```{r}
+sum_model %>%
+  filter(Overall.rank <= 5) %>%
+  select(Overall.rank, Country.or.region, Score, pred_score, RMSE)
+```
+
+
+# ----- RESULT -----
+
+# ----- Develop generalized linear model -----
+
+
+# --- test for an appropriate probability in data partitioning
+
+
+```{r}
+ps <- seq(from=.30, to=.90, by=.01)
+
+rmses <- sapply(ps, function(p){
+  train_index <- createDataPartition(data$Score,
+                                     times=1,
+                                     p=p,
+                                     list=FALSE)
+  train <- data[train_index,]
+  test <- data[-train_index,]
+  fit <- glm(Score ~ GDP.per.capita +
+               Social.support +
+               Healthy.life.expectancy + 
+               Freedom.to.make.life.choices + 
+               Generosity + 
+               Perceptions.of.corruption, 
+             data = train)
+  test <- test %>% 
+    mutate(pred_score = predict.glm(fit, newdata=test))
+  RMSE(test$Score, test$pred_score)
+})
+```
+
+
+
+
+# no real clear winner in terms of best accuracy in probabilities
+
+
+```{r}
+plot(ps, rmses)
+ps[which.min(rmses)]
+min(rmses)
+
+rm(ps, rmses)
+```
+
+# ----- Data partitioning -----
+# just using p=0.70
+
+
+```{r}
+train_index <- createDataPartition(data$Score, times=1, p=0.70, list=FALSE)
+train <- data[train_index,]
+test <- data[-train_index,]
+```
+
+# --- back to our model, p used above in data separation
+
+```{r}
+fit <- glm(Score ~ GDP.per.capita +
+             Social.support +
+             Healthy.life.expectancy + 
+             Freedom.to.make.life.choices + 
+             Generosity + 
+             Perceptions.of.corruption, 
+           data = train)
+```
+
+# add predicted scores to our 'data' data frame
+
+```{r}
+results <- test %>% 
+  mutate(pred_score = predict.glm(fit, newdata=test))
+```
+
+# plot predicted scores vs actual scores
+# also plot 1 to 1 line
+
+
+```{r}
+ggplot(data = results, aes(Score, pred_score)) + 
+  geom_point(color='black') +
+  geom_smooth(method = "lm", se = TRUE) +
+  geom_abline(color='red')
+```
+
+
+# print rmse
+
+```{r}
+RMSE(results$Score, results$pred_score)
+```
+
+# print coefficients of fitted model
+
+```{r}
+fit$coefficients
+```
+
+
+# ----- try fitting ALL year data. Country/region and rank is not used
+# anyways, just focus on the scores and other components.
+# cannot use beyond 2019/2019 because the parameters were changed that year
+
+# ----- Import 2018 dataset and keep only used columns
+
+```{r}
+data18 <- read.csv("2018.csv")
+data18$Overall.rank <- NULL
+data18$Country.or.region <- NULL
+```
+
+# remove unused columns in 19 data frame for merging
+
+```{r}
+data$Overall.rank <- NULL
+data$Country.or.region <- NULL
+```
+
+# turn corruption column from factor to numeric, turn NAs to 0
+
+```{r}
+data18$Perceptions.of.corruption <- as.numeric(as.character(data18$Perceptions.of.corruption))
+data18[is.na(data18)] <- 0
+```
+
+# full data set of both 2019, 2018 data
+
+```{r}
+full_data <- rbind(data, data18)
+```
+
+# ------ full data fit -----
+# partition full dataset
+
+```{r}
+train_index <- createDataPartition(full_data$Score, 
+                                   times=1, 
+                                   p=0.70, 
+                                   list=FALSE)
+train <- full_data[train_index,]
+test <- full_data[-train_index,]
+```
+
+# fit a model on train data
+
+
+```{r}
+fit_full <- glm(Score ~ GDP.per.capita + 
+                  Social.support +
+                  Healthy.life.expectancy + 
+                  Freedom.to.make.life.choices + 
+                  Generosity + 
+                  Perceptions.of.corruption, 
+                data = train)
+
+```
+
+
+# add predicted scores to our 'data' data frame
+
+```{r}
+results <- test %>% 
+  mutate(pred_score = predict.glm(fit_full, newdata=test))
+```
+
+# plot predicted scores vs actual scores
+# also plot 1 to 1 line
+
+```{r}
+ggplot(data = results, aes(Score, pred_score)) + 
+  geom_point(color='black') +
+  geom_smooth(method = "lm", se = TRUE) +
+  geom_abline(color='red')
+```
+
+# print rmse
+
+
+```{r}
+RMSE(results$Score, results$pred_score)
+```
+
+# print coefficients of fitted model
+
+```{r}
+fit_full$coefficients
+```
+
+# ----- try fit again without generosity
+
+```{r}
+fit_full_2 <- glm(Score ~ GDP.per.capita + 
+                  Social.support +
+                  Healthy.life.expectancy + 
+                  Freedom.to.make.life.choices + 
+                  Perceptions.of.corruption, 
+                data = train)
+```
+
+
+# add predicted scores to our 'data' data frame
+
+```{r}
+results <- test %>% 
+  mutate(pred_score = predict.glm(fit_full_2, newdata=test))
+```
+
+# plot predicted scores vs actual scores
+# also plot 1 to 1 line
+
+```{r}
+ggplot(data = results, aes(Score, pred_score)) + 
+  geom_point(color='black') +
+  geom_smooth(method = "lm", se = TRUE) +
+  geom_abline(color='red')
+```
+
+
+# ----- using rmse instead of cor: https://www.r-bloggers.com/dont-use-correlation-to-track-prediction-performance/
+# print residual sum of squares
+```{r}
+RMSE(results$Score, results$pred_score)
+
+```
+# ----- CONCLUSION -----
+
+The study grew out of a 2011 resolution passed by the U.N. General Assembly that called on governments to â€œgive more importance to happiness and well-being in determining how to achieve and measure social and economic development.â€ Over the years, the study has examined how social media, migration, differences in well-being inequality and other factors affect levels of happiness.This year, the study ranked cities around the world by their reported sense of well-being.
+
+Not surprisingly, the happiest city in the world is Helsinki, the capital of Finland.
+
+# print coefficients of fitted model
+```{r}
+fit_full_2$coefficients
+```
+# ----- REFRENCES -----
+
+https://www.nytimes.com/2020/03/20/world/europe/world-happiness-report.html
+
